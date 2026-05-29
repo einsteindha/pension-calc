@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>연금계좌 납입 시뮬레이터 · IdentiFi</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="납입 시뮬레이터">
+<meta name="theme-color" content="#0D1B3E">
+<style>
+:root{
+  --bg:#fff;--bg2:#f5f7fa;--bg3:#eef1f6;
+  --text:#1a1a2e;--text2:#4a5568;--text3:#718096;
+  --border:rgba(0,0,0,.1);--border2:rgba(0,0,0,.18);
+  --blue:#378ADD;--green:#1D9E75;--amber:#BA7517;--red:#D85A30;
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#1a1b26;--bg2:#24253a;--bg3:#2d2e45;
+    --text:#e8eaf6;--text2:#9fa8c0;--text3:#6b7394;
+    --border:rgba(255,255,255,.08);--border2:rgba(255,255,255,.15);
+  }
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{
+  min-height:100%;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif;
+  background:var(--bg3);color:var(--text);font-size:14px;line-height:1.6;
+}
+input[type=number]::-webkit-outer-spin-button,
+input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
+input[type=number]{-moz-appearance:textfield}
+input[type=range]{accent-color:var(--blue);width:100%;display:block;margin:6px 0 2px;cursor:pointer}
+
+.wrap{display:flex;flex-direction:column;min-height:100vh}
+
+/* 헤더 */
+.hd{background:#0D1B3E;color:#fff;padding:10px 16px;display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;flex-shrink:0}
+.hd-title{font-size:15px;font-weight:700;color:#E8C97E}
+.hd-sub{font-size:11px;color:#B0BAD4;margin-top:1px}
+.hd-badge{background:#C9A84C;color:#0D1B3E;font-size:11px;font-weight:700;padding:4px 10px;border-radius:20px;white-space:nowrap}
+
+/* 레이아웃 */
+.layout{display:flex;flex:1}
+.panel-left{flex:0 0 55%;padding:20px 24px 60px;overflow-y:auto}
+.panel-right{flex:1;padding:20px 24px 60px;background:var(--bg3);overflow-y:auto;border-left:1px solid var(--border)}
+@media(max-width:900px){
+  .layout{flex-direction:column}
+  .panel-left{flex:none;width:100%}
+  .panel-right{flex:none;width:100%;border-left:none;border-top:2px solid var(--border)}
+}
+
+/* 섹션 타이틀 */
+.pt{font-size:11px;font-weight:600;letter-spacing:.07em;text-transform:uppercase;color:var(--text3);margin-bottom:10px;padding-bottom:5px;border-bottom:1px solid var(--border)}
+
+/* 슬라이더 카드 */
+.ic{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:11px 13px;margin-bottom:9px}
+.ic.highlight{border-color:#C9A84C88}
+.ic-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
+.ic-label{font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.badge{font-size:10px;padding:1px 6px;border-radius:4px;font-weight:600;background:#FFF3CD;color:#7A5800}
+.ic-right{display:flex;align-items:center;gap:5px;flex-shrink:0}
+.num-input{width:68px;padding:4px 6px;border:1px solid var(--border2);border-radius:6px;background:var(--bg);color:var(--text);font-size:12px;font-weight:600;text-align:right;outline:none}
+.num-unit{font-size:11px;color:var(--text2);white-space:nowrap}
+.ic-note{font-size:11px;color:var(--text2);line-height:1.5;padding:5px 8px;background:var(--bg2);border-radius:6px;margin-bottom:8px}
+.ic-info{font-size:11px;color:var(--text2);padding:5px 8px;background:var(--bg2);border-radius:6px;margin-bottom:9px;line-height:1.5}
+
+/* 결과 */
+.result-empty{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:40vh;gap:12px;color:var(--text3);text-align:center}
+.main-card{background:#0D1B3E;border-radius:12px;padding:18px 20px;margin-bottom:14px;position:relative;overflow:hidden}
+.main-card-glow{position:absolute;top:-30px;right:-30px;width:120px;height:120px;background:radial-gradient(circle,rgba(201,168,76,.15) 0%,transparent 70%);pointer-events:none}
+.main-label{font-size:11px;color:#B0BAD4;margin-bottom:6px;letter-spacing:.07em;text-transform:uppercase}
+.main-value{font-size:32px;font-weight:700;color:#E8C97E;line-height:1}
+.main-value span{font-size:16px;color:#C9A84C;margin-left:6px;font-weight:600}
+.main-sub{font-size:11px;color:#B0BAD4;margin-top:8px}
+
+/* 통계 그리드 */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:7px;margin-bottom:14px}
+.met{background:var(--bg2);border-radius:8px;padding:11px 13px}
+.ml{font-size:12px;color:var(--text2);margin-bottom:3px}
+.mv{font-size:20px;font-weight:700;line-height:1.2}
+.ms{font-size:11px;color:var(--text3);margin-top:3px}
+
+/* 비교 테이블 */
+.tbl-wrap{background:var(--bg);border:1px solid var(--border);border-radius:12px;padding:13px;margin-bottom:14px}
+.tbl-title{font-size:13px;font-weight:600;margin-bottom:9px}
+.cf-table{width:100%;border-collapse:collapse;font-size:11px}
+.cf-table th{padding:5px 7px;text-align:left;font-weight:600;font-size:10px;color:var(--text2);border-bottom:1px solid var(--border);background:var(--bg2)}
+.cf-table td{padding:6px 7px;border-bottom:1px solid var(--border)}
+.cf-table tr:last-child td{border-bottom:none}
+.row-current td{background:var(--bg2);font-weight:700;color:var(--blue)}
+.tag-small{font-size:10px;margin-left:4px;color:var(--text3)}
+.tag-current{font-size:10px;margin-left:4px;color:var(--amber)}
+
+/* 면책 */
+.disclaimer{padding:12px 14px;font-size:12px;line-height:1.7;border-radius:12px;background:#FFF3CD;border-left:3px solid #BA7517}
+.disclaimer-title{font-weight:700;color:#7A5800;margin-bottom:6px}
+.disclaimer ul{padding-left:16px;color:#7A5800}
+.disclaimer li{margin-bottom:4px}
+.disclaimer li:last-child{margin-bottom:0}
+
+/* 푸터 */
+.footer{text-align:center;padding:14px;font-size:11px;color:var(--text3);border-top:1px solid var(--border);flex-shrink:0}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- 헤더 -->
+  <div class="hd">
+    <div>
+      <div class="hd-title">연금계좌 납입 시뮬레이터</div>
+      <div class="hd-sub">IdentiFi · 얼마를 받으려면 얼마를 넣을까</div>
+    </div>
+    <div class="hd-badge">상담용 참고자료</div>
+  </div>
+
+  <!-- 본문 -->
+  <div class="layout">
+
+    <!-- LEFT: 입력 -->
+    <div class="panel-left">
+
+      <!-- 1. 나이 설정 -->
+      <div style="margin-bottom:20px">
+        <div class="pt">1 · 나이 설정</div>
+
+        <div class="ic">
+          <div class="ic-row">
+            <span class="ic-label">현재 나이</span>
+            <div class="ic-right">
+              <input class="num-input" id="num-currentAge" type="number" min="0" max="100" step="1" value="30">
+              <span class="num-unit">세</span>
+            </div>
+          </div>
+          <input type="range" id="sl-currentAge" min="0" max="100" step="1" value="30">
+        </div>
+
+        <div class="ic">
+          <div class="ic-row">
+            <span class="ic-label">수령 시작 나이</span>
+            <div class="ic-right">
+              <input class="num-input" id="num-startAge" type="number" min="40" max="100" step="1" value="55">
+              <span class="num-unit">세</span>
+            </div>
+          </div>
+          <input type="range" id="sl-startAge" min="40" max="100" step="1" value="55">
+        </div>
+
+        <div class="ic">
+          <div class="ic-row">
+            <span class="ic-label">적립 기간</span>
+            <div class="ic-right">
+              <input class="num-input" id="num-accumYears" type="number" min="1" max="60" step="1" value="25">
+              <span class="num-unit">년</span>
+            </div>
+          </div>
+          <div class="ic-note" id="note-accumYears">수령 시작 나이까지 최대 25년</div>
+          <input type="range" id="sl-accumYears" min="1" max="25" step="1" value="25">
+        </div>
+
+        <div class="ic">
+          <div class="ic-row">
+            <span class="ic-label">수령 기간</span>
+            <div class="ic-right">
+              <input class="num-input" id="num-withdrawYears" type="number" min="1" max="60" step="1" value="30">
+              <span class="num-unit">년</span>
+            </div>
+          </div>
+          <div class="ic-note" id="note-withdrawYears">수령 시작 나이부터 최대 45년 (100세 기준)</div>
+          <input type="range" id="sl-withdrawYears" min="1" max="45" step="1" value="30">
+        </div>
+      </div>
+
+      <!-- 2. 수익률 설정 -->
+      <div style="margin-bottom:20px">
+        <div class="pt">2 · 수익률 설정</div>
+        <div class="ic-info">적립기·인출기 수익률을 각각 입력하세요. -10%~+20% 범위, 0.1% 단위.</div>
+
+        <div class="ic">
+          <div class="ic-row">
+            <span class="ic-label">적립기 수익률 (연)</span>
+            <div class="ic-right">
+              <input class="num-input" id="num-accumRate" type="number" min="-10" max="20" step="0.1" value="0">
+              <span class="num-unit">%</span>
+            </div>
+          </div>
+          <input type="range" id="sl-accumRate" min="-10" max="20" step="0.1" value="0">
+        </div>
+
+        <div class="ic">
+          <div class="ic-row">
+            <span class="ic-label">인출기 수익률 (연)</span>
+            <div class="ic-right">
+              <input class="num-input" id="num-withdrawRate" type="number" min="-10" max="20" step="0.1" value="0">
+              <span class="num-unit">%</span>
+            </div>
+          </div>
+          <input type="range" id="sl-withdrawRate" min="-10" max="20" step="0.1" value="0">
+        </div>
+      </div>
+
+      <!-- 3. 목표 수령액 -->
+      <div style="margin-bottom:20px">
+        <div class="pt">3 · 목표 월 수령액</div>
+        <div class="ic highlight">
+          <div class="ic-row">
+            <span class="ic-label">월 목표 수령액 <span class="badge">물가상승률 미반영</span></span>
+            <div class="ic-right">
+              <input class="num-input" id="num-targetMonthly" type="number" min="1" max="5000" step="1" value="100">
+              <span class="num-unit">만원</span>
+            </div>
+          </div>
+          <div class="ic-note">※ 현재 화폐가치 기준입니다. 실질 구매력 유지를 위해 물가상승률을 별도로 고려해야 합니다.</div>
+          <input type="range" id="sl-targetMonthly" min="1" max="5000" step="1" value="100">
+        </div>
+      </div>
+
+    </div><!-- /panel-left -->
+
+    <!-- RIGHT: 결과 -->
+    <div class="panel-right">
+      <div class="pt" style="margin-bottom:16px">결과 <span style="font-weight:400;text-transform:none;letter-spacing:0;font-size:10px">입력 변경 시 실시간 업데이트</span></div>
+      <div id="result-area">
+        <div class="result-empty">
+          <div style="font-size:40px;opacity:.25">◎</div>
+          <p style="font-size:13px;line-height:1.8">기본값으로 바로 계산됩니다</p>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- /layout -->
+
+  <!-- 푸터 -->
+  <div class="footer">본 계산기는 상담용 참고자료입니다. 실제 재무 의사결정은 반드시 CFP와 상담하세요. · IdentiFi</div>
+</div>
+
+<script>
+// ── 유틸
+function fmtWon(n){
+  if(n==null||isNaN(n)||!isFinite(n)) return '—';
+  const abs=Math.abs(n);
+  if(abs>=100000000) return (n/100000000).toFixed(1)+'억원';
+  return Math.round(n/10000).toLocaleString('ko-KR')+'만원';
+}
+function fmtMan(n){
+  if(n==null||isNaN(n)||!isFinite(n)) return '—';
+  return Math.round(n/10000).toLocaleString('ko-KR')+' 만원';
+}
+
+// ── 계산 핵심
+function calcMonthlyPMT(targetMonthly, withdrawYears, withdrawRate, accumYears, accumRate, holdYears){
+  holdYears = holdYears||0;
+  const rW=withdrawRate/100/12, nW=withdrawYears*12;
+  const rA=accumRate/100/12,   nA=accumYears*12;
+
+  // 1. 인출기 PV
+  let withdrawPV;
+  if(Math.abs(rW)<1e-9){ withdrawPV=targetMonthly*nW; }
+  else { withdrawPV=targetMonthly*(1-Math.pow(1+rW,-nW))/rW; }
+
+  // 2. 예치 기간 할인 → 적립 완료 시점 필요 원금
+  const holdGrowth=holdYears>0?Math.pow(1+accumRate/100,holdYears):1;
+  const neededPV=withdrawPV/holdGrowth;
+
+  if(nA===0) return{monthlyPMT:null,neededPV,withdrawPV};
+
+  // 3. 적립기 PMT 역산
+  let monthlyPMT;
+  if(Math.abs(rA)<1e-9){ monthlyPMT=neededPV/nA; }
+  else { monthlyPMT=neededPV*rA/(Math.pow(1+rA,nA)-1); }
+
+  return{monthlyPMT,neededPV,withdrawPV};
+}
+
+// ── 슬라이더 ↔ 숫자입력 양방향 연동
+function bindPair(slId,numId,onChange){
+  const sl=document.getElementById(slId);
+  const nm=document.getElementById(numId);
+  sl.addEventListener('input',()=>{
+    nm.value=sl.value;
+    onChange();
+  });
+  nm.addEventListener('input',()=>{
+    let v=parseFloat(nm.value);
+    if(isNaN(v)) return;
+    v=Math.min(parseFloat(sl.max),Math.max(parseFloat(sl.min),v));
+    sl.value=v;
+    onChange();
+  });
+  nm.addEventListener('blur',()=>{
+    if(nm.value===''||isNaN(parseFloat(nm.value))){
+      nm.value=sl.value;
+    }
+  });
+}
+
+// ── 값 읽기
+function val(id){ return parseFloat(document.getElementById(id).value)||0; }
+
+// ── 결과 렌더링
+function render(){
+  const ca=val('sl-currentAge');
+  const sa=val('sl-startAge');
+  const ay=val('sl-accumYears');
+  const wy=val('sl-withdrawYears');
+  const ar=val('sl-accumRate');
+  const wr=val('sl-withdrawRate');
+  const tm=val('sl-targetMonthly')*10000;
+
+  const area=document.getElementById('result-area');
+
+  if(sa<40||sa>100||ca<0||ca>=sa||ay<1||ay>sa-ca||wy<1||tm<=0){
+    area.innerHTML=`<div class="result-empty"><div style="font-size:40px;opacity:.25">△</div><p style="font-size:13px;line-height:1.8">입력값을 확인해주세요<br><span style="font-size:11px">수령 시작 나이는 현재 나이보다 커야 합니다</span></p></div>`;
+    return;
+  }
+
+  const holdYears=Math.max(0,sa-(ca+ay));
+  const{monthlyPMT,neededPV,withdrawPV}=calcMonthlyPMT(tm,wy,wr,ay,ar,holdYears);
+
+  if(monthlyPMT==null||!isFinite(monthlyPMT)||monthlyPMT<0){
+    area.innerHTML=`<div class="result-empty"><div style="font-size:40px;opacity:.25">△</div><p>계산할 수 없는 조합입니다</p></div>`;
+    return;
+  }
+
+  const totalPaid=monthlyPMT*ay*12;
+  const totalReceived=tm*wy*12;
+  const pmtMan=Math.round(monthlyPMT/10000);
+  const ratio=totalPaid>0?(totalReceived/totalPaid):0;
+  const ratioColor=ratio>1?'var(--green)':'var(--red)';
+
+  // 비교 시나리오
+  const fixedRates=[3,5,7];
+  const dynamicRates=[ar-2,ar,ar+2];
+  const allRates=[...new Set([...fixedRates,...dynamicRates]
+    .map(r=>Math.round(r*10)/10)
+    .filter(r=>r>=-10&&r<=20)
+  )].sort((a,b)=>a-b);
+
+  const scenarioRows=allRates.map(r=>{
+    const{monthlyPMT:p}=calcMonthlyPMT(tm,wy,wr,ay,r,holdYears);
+    const isFixed=fixedRates.includes(r);
+    const isCurrent=Math.abs(r-ar)<1e-9;
+    const isDynamic=Math.abs(r-(ar-2))<1e-9||Math.abs(r-(ar+2))<1e-9;
+    const label=`${r%1===0?r.toFixed(1):r}%`;
+    const tag=isCurrent
+      ?`<span class="tag-current">◀ 입력값</span>`
+      :isDynamic&&!isFixed
+      ?`<span class="tag-small">±2%</span>`
+      :isFixed&&isDynamic
+      ?`<span class="tag-small">고정·±2%</span>`
+      :`<span class="tag-small">기준</span>`;
+    const rowClass=isCurrent?'row-current':'';
+    const pmtStr=p!=null&&isFinite(p)?fmtMan(p):'—';
+    const totalStr=p!=null&&isFinite(p)?fmtMan(p*ay*12):'—';
+    return`<tr class="${rowClass}"><td>${label}${tag}</td><td style="text-align:right">${pmtStr}</td><td style="text-align:right">${totalStr}</td></tr>`;
+  }).join('');
+
+  const subLine=`${ay}년간 납입${holdYears>0?` → ${holdYears}년 예치`:''} → ${sa}세부터 ${wy}년 수령`;
+  const neededSub=holdYears>0?`예치 ${holdYears}년 후 → ${fmtWon(withdrawPV)}`:'수령 시작 시점';
+  const totalColor=totalReceived>totalPaid?'var(--green)':'var(--text)';
+
+  area.innerHTML=`
+    <div class="main-card">
+      <div class="main-card-glow"></div>
+      <div class="main-label">매월 납입액</div>
+      <div class="main-value">${pmtMan.toLocaleString('ko-KR')}<span>만원</span></div>
+      <div class="main-sub">${subLine}</div>
+    </div>
+
+    <div class="stats">
+      <div class="met">
+        <div class="ml">적립 완료 시 원금</div>
+        <div class="mv">${fmtWon(neededPV)}</div>
+        <div class="ms">${neededSub}</div>
+      </div>
+      <div class="met">
+        <div class="ml">총 납입액</div>
+        <div class="mv">${fmtWon(totalPaid)}</div>
+        <div class="ms">${ay}년 합산</div>
+      </div>
+      <div class="met">
+        <div class="ml">총 수령 예상액</div>
+        <div class="mv" style="color:${totalColor}">${fmtWon(totalReceived)}</div>
+        <div class="ms">${wy}년 합산</div>
+      </div>
+      <div class="met">
+        <div class="ml">수익 배율</div>
+        <div class="mv" style="color:${ratioColor}">${ratio.toFixed(2)}배</div>
+        <div class="ms">총수령 / 총납입</div>
+      </div>
+    </div>
+
+    <div class="tbl-wrap">
+      <div class="tbl-title">적립기 수익률별 비교</div>
+      <table class="cf-table">
+        <thead><tr><th>적립기 수익률</th><th style="text-align:right">월 납입액</th><th style="text-align:right">총 납입액</th></tr></thead>
+        <tbody>${scenarioRows}</tbody>
+      </table>
+    </div>
+
+    <div class="disclaimer">
+      <div class="disclaimer-title">⚠ 주의사항</div>
+      <ul>
+        <li><strong>물가상승률 미반영</strong> — 목표 수령액은 현재 화폐가치 기준입니다.</li>
+        <li><strong>세금 · 건보료 · 수수료 미반영</strong></li>
+        <li>정밀한 적립 전략은 <strong>IdentiFi 고도화 시뮬레이터</strong>를 이용하거나 <strong>IdentiFi CFP</strong>와 상담하세요.</li>
+      </ul>
+    </div>
+  `;
+}
+
+// ── 나이 변경 시 accumYears max 동기화
+function syncAccumMax(){
+  const ca=val('sl-currentAge');
+  const sa=val('sl-startAge');
+  const newMax=sa>ca?sa-ca:1;
+  const slAY=document.getElementById('sl-accumYears');
+  const nmAY=document.getElementById('num-accumYears');
+  slAY.max=newMax;
+  nmAY.max=newMax;
+  document.getElementById('note-accumYears').textContent=`수령 시작 나이까지 최대 ${newMax}년`;
+  // 초과할 때만 클램프
+  if(parseFloat(slAY.value)>newMax){ slAY.value=newMax; nmAY.value=newMax; }
+}
+
+function syncWithdrawMax(){
+  const sa=val('sl-startAge');
+  const newMax=Math.max(1,100-sa);
+  const slWY=document.getElementById('sl-withdrawYears');
+  const nmWY=document.getElementById('num-withdrawYears');
+  slWY.max=newMax;
+  nmWY.max=newMax;
+  document.getElementById('note-withdrawYears').textContent=`수령 시작 나이부터 최대 ${newMax}년 (100세 기준)`;
+  if(parseFloat(slWY.value)>newMax){ slWY.value=newMax; nmWY.value=newMax; }
+}
+
+function update(){
+  syncAccumMax();
+  syncWithdrawMax();
+  render();
+}
+
+// ── 이벤트 바인딩
+bindPair('sl-currentAge',   'num-currentAge',   update);
+bindPair('sl-startAge',     'num-startAge',     update);
+bindPair('sl-accumYears',   'num-accumYears',   update);
+bindPair('sl-withdrawYears','num-withdrawYears',update);
+bindPair('sl-accumRate',    'num-accumRate',    update);
+bindPair('sl-withdrawRate', 'num-withdrawRate', update);
+bindPair('sl-targetMonthly','num-targetMonthly',update);
+
+// ── 초기 렌더
+update();
+</script>
+</body>
+</html>
