@@ -75,6 +75,17 @@ input[type=range]{accent-color:var(--blue);width:100%;display:block;margin:6px 0
 .main-value span{font-size:16px;color:#C9A84C;margin-left:6px;font-weight:600}
 .main-sub{font-size:11px;color:#B0BAD4;margin-top:8px}
 
+/* 납입 방식 3카드 */
+.pmt-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:14px}
+@media(max-width:600px){.pmt-grid{grid-template-columns:1fr}}
+.pmt-card{background:#0D1B3E;border-radius:12px;padding:15px 16px;position:relative;overflow:hidden}
+.pmt-card-glow{position:absolute;top:-24px;right:-24px;width:90px;height:90px;background:radial-gradient(circle,rgba(201,168,76,.13) 0%,transparent 70%);pointer-events:none}
+.pmt-card.active{outline:2px solid #C9A84C}
+.pmt-tag{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:#B0BAD4;margin-bottom:5px}
+.pmt-value{font-size:24px;font-weight:700;color:#E8C97E;line-height:1}
+.pmt-value span{font-size:13px;color:#C9A84C;margin-left:4px;font-weight:600}
+.pmt-sub{font-size:10px;color:#B0BAD4;margin-top:6px;line-height:1.5}
+
 /* 통계 그리드 */
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(90px,1fr));gap:7px;margin-bottom:14px}
 .met{background:var(--bg2);border-radius:8px;padding:11px 13px}
@@ -92,6 +103,10 @@ input[type=range]{accent-color:var(--blue);width:100%;display:block;margin:6px 0
 .row-current td{background:var(--bg2);font-weight:700;color:var(--blue)}
 .tag-small{font-size:10px;margin-left:4px;color:var(--text3)}
 .tag-current{font-size:10px;margin-left:4px;color:var(--amber)}
+
+/* 물가 배너 */
+.inflation-banner{font-size:12px;color:var(--text2);padding:8px 12px;background:var(--bg2);border-left:3px solid var(--blue);border-radius:6px;margin-bottom:12px;line-height:1.6}
+.inflation-banner strong{color:var(--text)}
 
 /* 물가 배너 */
 .inflation-banner{font-size:12px;color:var(--text2);padding:8px 12px;background:var(--bg2);border-left:3px solid var(--blue);border-radius:6px;margin-bottom:12px;line-height:1.6}
@@ -162,6 +177,27 @@ input[type=range]{accent-color:var(--blue);width:100%;display:block;margin:6px 0
           </div>
           <div class="ic-note" id="note-accumYears">수령 시작 나이까지 최대 25년</div>
           <input type="range" id="sl-accumYears" min="1" max="25" step="1" value="25">
+        </div>
+
+        <div class="ic" id="ic-escalation">
+          <div class="ic-row" style="cursor:pointer" id="escalation-toggle-row">
+            <span class="ic-label" style="gap:8px">
+              <span id="escalation-arrow" style="font-size:10px;color:var(--text3);transition:transform .2s">▶</span>
+              증액저축
+              <span id="escalation-badge" style="font-size:10px;padding:1px 7px;border-radius:4px;font-weight:700;background:var(--bg3);color:var(--text3)">OFF</span>
+            </span>
+          </div>
+          <div id="escalation-body" style="display:none;margin-top:8px">
+            <div class="ic-row">
+              <span class="ic-label">연 증액률</span>
+              <div class="ic-right">
+                <input class="num-input" id="num-escalation" type="number" min="0.1" max="10" step="0.1" value="2">
+                <span class="num-unit">%</span>
+              </div>
+            </div>
+            <div class="ic-note">매년 납입액이 입력한 비율만큼 증가합니다. 결과는 <strong>첫 해</strong> 납입액으로 표시됩니다.</div>
+            <input type="range" id="sl-escalation" min="0.1" max="10" step="0.1" value="2">
+          </div>
         </div>
 
         <div class="ic">
@@ -252,6 +288,9 @@ input[type=range]{accent-color:var(--blue);width:100%;display:block;margin:6px 0
 </div>
 
 <script>
+// ── 전역 상태
+let escalationOn = false;
+
 // ── 유틸
 function fmtWon(n){
   if(n==null||isNaN(n)||!isFinite(n)) return '—';
@@ -304,7 +343,61 @@ function calcMonthlyPMT(targetMonthly, withdrawYears, withdrawRate, accumYears, 
   return{monthlyPMT, neededPV, withdrawPV, inflatedTarget};
 }
 
-// ── 슬라이더 ↔ 숫자입력 양방향 연동
+// ── 연납 PMT 역산 (neededPV 기준, 적립기 수익률 연단위)
+// type: 'end'=기말불(매년 말), 'begin'=기시불(매년 초)
+function calcAnnualPMT(neededPV, accumYears, accumRate, type){
+  const r = accumRate / 100;
+  const n = accumYears;
+  if(n === 0) return null;
+  let pmt;
+  if(Math.abs(r) < 1e-9){
+    pmt = neededPV / n;
+  } else {
+    pmt = neededPV * r / (Math.pow(1+r, n) - 1); // 기말불
+  }
+  if(type === 'begin') pmt = pmt / (1 + r); // 기시불: 연초 납입 → 1년치 이자 선취
+  return pmt;
+}
+
+// ── 증액저축 첫 해 납입액 역산
+// neededPV: 적립 완료 시점 필요 원금
+// accumYears: 적립 기간 (연)
+// accumRate: 적립기 수익률 (%)
+// escalation: 연 증액률 (%)
+// payType: 'monthly' | 'annual-end' | 'annual-begin'
+function calcEscalatedFirstPMT(neededPV, accumYears, accumRate, escalation, payType){
+  const r = accumRate / 100;   // 연 수익률
+  const e = escalation / 100;  // 연 증액률
+  const n = accumYears;
+  if(n === 0) return null;
+
+  // Growing Annuity FV (연납 기말불 기준)
+  // FV = P × [(1+r)^n - (1+e)^n] / (r - e)   (r ≠ e)
+  // FV = P × n × (1+r)^(n-1)                  (r = e)
+  let fvFactor;
+  if(Math.abs(r - e) < 1e-9){
+    fvFactor = n * Math.pow(1 + r, n - 1);
+  } else {
+    fvFactor = (Math.pow(1+r, n) - Math.pow(1+e, n)) / (r - e);
+  }
+  if(!isFinite(fvFactor) || fvFactor <= 0) return null;
+
+  // 연납 기말불 첫 해 납입액
+  let firstAnnualPMT = neededPV / fvFactor;
+
+  if(payType === 'annual-begin'){
+    // 기시불: 연초 납입 → 1년치 이자 선취 → 더 적음
+    firstAnnualPMT = firstAnnualPMT / (1 + r);
+    return firstAnnualPMT;
+  }
+  if(payType === 'annual-end'){
+    return firstAnnualPMT;
+  }
+  // 월납: 연 납입액을 12등분 (첫 해 월 납입액)
+  // 월 수익률 rM, 연내 12회 기말불 FV = P_m × [(1+rM)^12 - 1] / rM
+  // 증액은 연 단위이므로 월납도 연 환산으로 근사: 첫 해 연납 / 12
+  return firstAnnualPMT / 12;
+}
 function bindPair(slId,numId,onChange){
   const sl=document.getElementById(slId);
   const nm=document.getElementById(numId);
@@ -361,6 +454,58 @@ function render(){
   const ratio=totalPaid>0?(totalReceived/totalPaid):0;
   const ratioColor=ratio>1?'var(--green)':'var(--red)';
 
+  const subLine=`${ay}년간 납입${holdYears>0?` → ${holdYears}년 예치`:''} → ${sa}세부터 ${wy}년 수령`;
+  const neededSub=holdYears>0?`예치 ${holdYears}년 후 → ${fmtWon(withdrawPV)}`:'수령 시작 시점';
+
+  // 증액저축 여부
+  const esc = escalationOn ? val('sl-escalation') : 0;
+
+  // 카드 값 결정
+  let card1Val, card2Val, card3Val;
+  let card1Label, card2Label, card3Label;
+  let card1Sub, card2Sub, card3Sub;
+
+  if(escalationOn){
+    // 증액: 첫 해 납입액 역산
+    const firstMonthly   = calcEscalatedFirstPMT(neededPV, ay, ar, esc, 'monthly');
+    const firstAnnualEnd = calcEscalatedFirstPMT(neededPV, ay, ar, esc, 'annual-end');
+    const firstAnnualBeg = calcEscalatedFirstPMT(neededPV, ay, ar, esc, 'annual-begin');
+    const escStr = `매년 ${esc}% 증액`;
+
+    card1Label = '첫 해 월 납입';
+    card1Val   = firstMonthly!=null&&isFinite(firstMonthly) ? Math.round(firstMonthly/10000) : null;
+    card1Sub   = card1Val!=null ? `${escStr}<br>1년차 연 환산 ${Math.round(card1Val*12).toLocaleString('ko-KR')}만원` : escStr;
+
+    card2Label = '첫 해 연말 납입';
+    card2Val   = firstAnnualEnd!=null&&isFinite(firstAnnualEnd) ? Math.round(firstAnnualEnd/10000) : null;
+    card2Sub   = `${escStr}<br>연 1회 · 연말 일시납`;
+
+    card3Label = '첫 해 연초 납입';
+    card3Val   = firstAnnualBeg!=null&&isFinite(firstAnnualBeg) ? Math.round(firstAnnualBeg/10000) : null;
+    card3Sub   = `${escStr}<br>연 1회 · 연초 일시납`;
+  } else {
+    // 정액: 기존 로직
+    const annualEndPMT   = calcAnnualPMT(neededPV, ay, ar, 'end');
+    const annualBeginPMT = calcAnnualPMT(neededPV, ay, ar, 'begin');
+    const annualEndMan   = annualEndPMT!=null&&isFinite(annualEndPMT)   ? Math.round(annualEndPMT/10000)   : null;
+    const annualBeginMan = annualBeginPMT!=null&&isFinite(annualBeginPMT) ? Math.round(annualBeginPMT/10000) : null;
+    const monthlyAnnual  = pmtMan * 12;
+    const endDiff   = annualEndMan!=null   ? ((annualEndMan/monthlyAnnual-1)*100).toFixed(1) : null;
+    const beginDiff = annualBeginMan!=null ? ((annualBeginMan/monthlyAnnual-1)*100).toFixed(1) : null;
+
+    card1Label = '매월 납입';
+    card1Val   = pmtMan;
+    card1Sub   = `연 환산 ${monthlyAnnual.toLocaleString('ko-KR')}만원<br>${subLine}`;
+
+    card2Label = '매년 말 납입';
+    card2Val   = annualEndMan;
+    card2Sub   = `연 1회 · 연말 일시납<br>월납 연환산 대비 ${endDiff!=null?(parseFloat(endDiff)>0?'+':'')+endDiff+'%':'—'}`;
+
+    card3Label = '매년 초 납입';
+    card3Val   = annualBeginMan;
+    card3Sub   = `연 1회 · 연초 일시납<br>월납 연환산 대비 ${beginDiff!=null?(parseFloat(beginDiff)>0?'+':'')+beginDiff+'%':'—'}`;
+  }
+
   // 비교 시나리오
   const fixedRates=[3,5,7];
   const dynamicRates=[ar-2,ar,ar+2];
@@ -388,8 +533,6 @@ function render(){
     return`<tr class="${rowClass}"><td>${label}${tag}</td><td style="text-align:right">${pmtStr}</td><td style="text-align:right">${totalStr}</td></tr>`;
   }).join('');
 
-  const subLine=`${ay}년간 납입${holdYears>0?` → ${holdYears}년 예치`:''} → ${sa}세부터 ${wy}년 수령`;
-  const neededSub=holdYears>0?`예치 ${holdYears}년 후 → ${fmtWon(withdrawPV)}`:'수령 시작 시점';
   const totalColor=totalReceived>totalPaid?'var(--green)':'var(--text)';
 
   // 물가 반영 안내 텍스트
@@ -398,14 +541,30 @@ function render(){
     : `물가상승률 0% · 수령액 고정`;
 
   area.innerHTML=`
-    <div class="main-card">
-      <div class="main-card-glow"></div>
-      <div class="main-label">매월 납입액</div>
-      <div class="main-value">${pmtMan.toLocaleString('ko-KR')}<span>만원</span></div>
-      <div class="main-sub">${subLine}</div>
+    <div class="pmt-grid">
+      <div class="pmt-card active">
+        <div class="pmt-card-glow"></div>
+        <div class="pmt-tag">${card1Label}</div>
+        <div class="pmt-value">${card1Val!=null?card1Val.toLocaleString('ko-KR'):'—'}<span>만원</span></div>
+        <div class="pmt-sub">${card1Sub}</div>
+      </div>
+      <div class="pmt-card">
+        <div class="pmt-card-glow"></div>
+        <div class="pmt-tag">${card2Label}</div>
+        <div class="pmt-value">${card2Val!=null?card2Val.toLocaleString('ko-KR'):'—'}<span>만원</span></div>
+        <div class="pmt-sub">${card2Sub}</div>
+      </div>
+      <div class="pmt-card">
+        <div class="pmt-card-glow"></div>
+        <div class="pmt-tag">${card3Label}</div>
+        <div class="pmt-value">${card3Val!=null?card3Val.toLocaleString('ko-KR'):'—'}<span>만원</span></div>
+        <div class="pmt-sub">${card3Sub}</div>
+      </div>
     </div>
 
     <div class="inflation-banner">${infNote}</div>
+
+    <div style="font-size:11px;color:var(--text3);margin-bottom:12px;padding:0 2px">${subLine}</div>
 
     <div class="stats">
       <div class="met">
@@ -489,6 +648,25 @@ bindPair('sl-accumRate',    'num-accumRate',    update);
 bindPair('sl-withdrawRate', 'num-withdrawRate', update);
 bindPair('sl-targetMonthly','num-targetMonthly',update);
 bindPair('sl-inflation',    'num-inflation',    update);
+bindPair('sl-escalation',   'num-escalation',   update);
+
+// ── 증액저축 토글
+document.getElementById('escalation-toggle-row').addEventListener('click', ()=>{
+  escalationOn = !escalationOn;
+  document.getElementById('escalation-body').style.display = escalationOn ? 'block' : 'none';
+  document.getElementById('escalation-arrow').style.transform = escalationOn ? 'rotate(90deg)' : '';
+  const badge = document.getElementById('escalation-badge');
+  if(escalationOn){
+    badge.textContent = 'ON';
+    badge.style.background = '#1D9E7522';
+    badge.style.color = 'var(--green)';
+  } else {
+    badge.textContent = 'OFF';
+    badge.style.background = 'var(--bg3)';
+    badge.style.color = 'var(--text3)';
+  }
+  update();
+});
 
 // ── 초기 렌더
 update();
