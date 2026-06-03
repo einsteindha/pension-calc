@@ -93,6 +93,10 @@ input[type=range]{accent-color:var(--blue);width:100%;display:block;margin:6px 0
 .tag-small{font-size:10px;margin-left:4px;color:var(--text3)}
 .tag-current{font-size:10px;margin-left:4px;color:var(--amber)}
 
+/* 물가 배너 */
+.inflation-banner{font-size:12px;color:var(--text2);padding:8px 12px;background:var(--bg2);border-left:3px solid var(--blue);border-radius:6px;margin-bottom:12px;line-height:1.6}
+.inflation-banner strong{color:var(--text)}
+
 /* 면책 */
 .disclaimer{padding:12px 14px;font-size:12px;line-height:1.7;border-radius:12px;background:#FFF3CD;border-left:3px solid #BA7517}
 .disclaimer-title{font-weight:700;color:#7A5800;margin-bottom:6px}
@@ -206,14 +210,25 @@ input[type=range]{accent-color:var(--blue);width:100%;display:block;margin:6px 0
         <div class="pt">3 · 목표 월 수령액</div>
         <div class="ic highlight">
           <div class="ic-row">
-            <span class="ic-label">월 목표 수령액 <span class="badge">물가상승률 미반영</span></span>
+            <span class="ic-label">월 목표 수령액 <span class="badge">현재 물가 기준</span></span>
             <div class="ic-right">
               <input class="num-input" id="num-targetMonthly" type="number" min="1" max="5000" step="1" value="100">
               <span class="num-unit">만원</span>
             </div>
           </div>
-          <div class="ic-note">※ 현재 화폐가치 기준입니다. 실질 구매력 유지를 위해 물가상승률을 별도로 고려해야 합니다.</div>
           <input type="range" id="sl-targetMonthly" min="1" max="5000" step="1" value="100">
+        </div>
+
+        <div class="ic">
+          <div class="ic-row">
+            <span class="ic-label">물가상승률 (연)</span>
+            <div class="ic-right">
+              <input class="num-input" id="num-inflation" type="number" min="0" max="8" step="0.1" value="3">
+              <span class="num-unit">%</span>
+            </div>
+          </div>
+          <div class="ic-note" id="note-inflation">수령 시작 시점 및 인출 기간 중 실질 구매력 유지에 반영됩니다.</div>
+          <input type="range" id="sl-inflation" min="0" max="8" step="0.1" value="3">
         </div>
       </div>
 
@@ -250,28 +265,43 @@ function fmtMan(n){
 }
 
 // ── 계산 핵심
-function calcMonthlyPMT(targetMonthly, withdrawYears, withdrawRate, accumYears, accumRate, holdYears){
-  holdYears = holdYears||0;
-  const rW=withdrawRate/100/12, nW=withdrawYears*12;
-  const rA=accumRate/100/12,   nA=accumYears*12;
+// inflationRate: 연 물가상승률 (%)
+function calcMonthlyPMT(targetMonthly, withdrawYears, withdrawRate, accumYears, accumRate, holdYears, inflationRate){
+  holdYears    = holdYears||0;
+  inflationRate= inflationRate||0;
 
-  // 1. 인출기 PV
+  const rW = withdrawRate/100/12;
+  const nW = withdrawYears*12;
+  const rA = accumRate/100/12;
+  const nA = accumYears*12;
+  const g  = inflationRate/100/12; // 월 물가상승률
+
+  // 1. 수령 시작 시점 명목 월 수령액 (적립기 + 예치기 동안 물가 복리)
+  const totalYearsToStart = accumYears + holdYears;
+  const inflatedTarget = targetMonthly * Math.pow(1 + inflationRate/100, totalYearsToStart);
+
+  // 2. 인출기 PV — Growing Annuity (매월 g씩 증가)
+  //    rW ≈ g 인 경우: PV = P × n
+  //    그 외: PV = P × [1 - ((1+g)/(1+rW))^n] / (rW - g)
   let withdrawPV;
-  if(Math.abs(rW)<1e-9){ withdrawPV=targetMonthly*nW; }
-  else { withdrawPV=targetMonthly*(1-Math.pow(1+rW,-nW))/rW; }
+  if(Math.abs(rW - g) < 1e-9){
+    withdrawPV = inflatedTarget * nW;
+  } else {
+    withdrawPV = inflatedTarget * (1 - Math.pow((1+g)/(1+rW), nW)) / (rW - g);
+  }
 
-  // 2. 예치 기간 할인 → 적립 완료 시점 필요 원금
-  const holdGrowth=holdYears>0?Math.pow(1+accumRate/100,holdYears):1;
-  const neededPV=withdrawPV/holdGrowth;
+  // 3. 예치 기간 할인 → 적립 완료 시점 필요 원금
+  const holdGrowth = holdYears > 0 ? Math.pow(1 + accumRate/100, holdYears) : 1;
+  const neededPV   = withdrawPV / holdGrowth;
 
-  if(nA===0) return{monthlyPMT:null,neededPV,withdrawPV};
+  if(nA === 0) return{monthlyPMT:null, neededPV, withdrawPV, inflatedTarget};
 
-  // 3. 적립기 PMT 역산
+  // 4. 적립기 PMT 역산
   let monthlyPMT;
-  if(Math.abs(rA)<1e-9){ monthlyPMT=neededPV/nA; }
-  else { monthlyPMT=neededPV*rA/(Math.pow(1+rA,nA)-1); }
+  if(Math.abs(rA) < 1e-9){ monthlyPMT = neededPV / nA; }
+  else { monthlyPMT = neededPV * rA / (Math.pow(1+rA, nA) - 1); }
 
-  return{monthlyPMT,neededPV,withdrawPV};
+  return{monthlyPMT, neededPV, withdrawPV, inflatedTarget};
 }
 
 // ── 슬라이더 ↔ 숫자입력 양방향 연동
@@ -308,6 +338,7 @@ function render(){
   const ar=val('sl-accumRate');
   const wr=val('sl-withdrawRate');
   const tm=val('sl-targetMonthly')*10000;
+  const inf=val('sl-inflation');
 
   const area=document.getElementById('result-area');
 
@@ -317,7 +348,7 @@ function render(){
   }
 
   const holdYears=Math.max(0,sa-(ca+ay));
-  const{monthlyPMT,neededPV,withdrawPV}=calcMonthlyPMT(tm,wy,wr,ay,ar,holdYears);
+  const{monthlyPMT,neededPV,withdrawPV,inflatedTarget}=calcMonthlyPMT(tm,wy,wr,ay,ar,holdYears,inf);
 
   if(monthlyPMT==null||!isFinite(monthlyPMT)||monthlyPMT<0){
     area.innerHTML=`<div class="result-empty"><div style="font-size:40px;opacity:.25">△</div><p>계산할 수 없는 조합입니다</p></div>`;
@@ -339,7 +370,7 @@ function render(){
   )].sort((a,b)=>a-b);
 
   const scenarioRows=allRates.map(r=>{
-    const{monthlyPMT:p}=calcMonthlyPMT(tm,wy,wr,ay,r,holdYears);
+    const{monthlyPMT:p}=calcMonthlyPMT(tm,wy,wr,ay,r,holdYears,inf);
     const isFixed=fixedRates.includes(r);
     const isCurrent=Math.abs(r-ar)<1e-9;
     const isDynamic=Math.abs(r-(ar-2))<1e-9||Math.abs(r-(ar+2))<1e-9;
@@ -361,6 +392,11 @@ function render(){
   const neededSub=holdYears>0?`예치 ${holdYears}년 후 → ${fmtWon(withdrawPV)}`:'수령 시작 시점';
   const totalColor=totalReceived>totalPaid?'var(--green)':'var(--text)';
 
+  // 물가 반영 안내 텍스트
+  const infNote = inf > 0
+    ? `물가상승률 ${inf}% 반영 · 수령 시작 시 <strong>${fmtWon(inflatedTarget)}/월</strong> → 매년 ${inf}% 증가`
+    : `물가상승률 0% · 수령액 고정`;
+
   area.innerHTML=`
     <div class="main-card">
       <div class="main-card-glow"></div>
@@ -368,6 +404,8 @@ function render(){
       <div class="main-value">${pmtMan.toLocaleString('ko-KR')}<span>만원</span></div>
       <div class="main-sub">${subLine}</div>
     </div>
+
+    <div class="inflation-banner">${infNote}</div>
 
     <div class="stats">
       <div class="met">
@@ -383,7 +421,7 @@ function render(){
       <div class="met">
         <div class="ml">총 수령 예상액</div>
         <div class="mv" style="color:${totalColor}">${fmtWon(totalReceived)}</div>
-        <div class="ms">${wy}년 합산</div>
+        <div class="ms">${wy}년 합산 (현재가치)</div>
       </div>
       <div class="met">
         <div class="ml">수익 배율</div>
@@ -403,8 +441,8 @@ function render(){
     <div class="disclaimer">
       <div class="disclaimer-title">⚠ 주의사항</div>
       <ul>
-        <li><strong>물가상승률 미반영</strong> — 목표 수령액은 현재 화폐가치 기준입니다.</li>
         <li><strong>세금 · 건보료 · 수수료 미반영</strong></li>
+        <li>물가상승률은 <strong>적립기·예치기·인출기 전 구간</strong>에 반영됩니다. 실제 물가는 변동될 수 있습니다.</li>
         <li>정밀한 적립 전략은 <strong>IdentiFi 고도화 시뮬레이터</strong>를 이용하거나 <strong>IdentiFi CFP</strong>와 상담하세요.</li>
       </ul>
     </div>
@@ -450,6 +488,7 @@ bindPair('sl-withdrawYears','num-withdrawYears',update);
 bindPair('sl-accumRate',    'num-accumRate',    update);
 bindPair('sl-withdrawRate', 'num-withdrawRate', update);
 bindPair('sl-targetMonthly','num-targetMonthly',update);
+bindPair('sl-inflation',    'num-inflation',    update);
 
 // ── 초기 렌더
 update();
