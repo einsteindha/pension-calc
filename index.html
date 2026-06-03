@@ -141,6 +141,22 @@ input[type=range]{accent-color:var(--blue);width:100%;display:block;margin:6px 0
     <!-- LEFT: 입력 -->
     <div class="panel-left">
 
+      <!-- 0. 현재 은퇴 준비 계좌 평가액 -->
+      <div style="margin-bottom:20px">
+        <div class="pt">0 · 현재 은퇴 준비 계좌 평가액</div>
+        <div class="ic highlight">
+          <div class="ic-row">
+            <span class="ic-label">현재 은퇴 준비 계좌 평가액</span>
+            <div class="ic-right">
+              <input class="num-input" id="num-currentBalance" type="number" min="0" max="300000" step="1" value="0">
+              <span class="num-unit">만원</span>
+            </div>
+          </div>
+          <div id="display-currentBalance" style="font-size:12px;font-weight:600;color:var(--blue);text-align:right;margin-bottom:4px">0원</div>
+          <input type="range" id="sl-currentBalance" min="0" max="300000" step="100" value="0">
+        </div>
+      </div>
+
       <!-- 1. 나이 설정 -->
       <div style="margin-bottom:20px">
         <div class="pt">1 · 나이 설정</div>
@@ -303,6 +319,23 @@ function fmtMan(n){
   return Math.round(n/10000).toLocaleString('ko-KR')+' 만원';
 }
 
+// 만원 단위 숫자 → 억/만 혼합 표시 (예: 55000 → 5억 5,000만원)
+function fmtBalanceDisplay(man){
+  if(man==null||isNaN(man)) return '0원';
+  man = Math.round(man);
+  if(man === 0) return '0원';
+  const uk = Math.floor(man / 10000);
+  const rem = man % 10000;
+  if(uk > 0 && rem > 0) return `${uk.toLocaleString('ko-KR')}억 ${rem.toLocaleString('ko-KR')}만원`;
+  if(uk > 0)            return `${uk.toLocaleString('ko-KR')}억원`;
+  return `${rem.toLocaleString('ko-KR')}만원`;
+}
+
+function updateBalanceDisplay(){
+  const v = parseFloat(document.getElementById('num-currentBalance').value) || 0;
+  document.getElementById('display-currentBalance').textContent = fmtBalanceDisplay(v);
+}
+
 // ── 계산 핵심
 // inflationRate: 연 물가상승률 (%)
 function calcMonthlyPMT(targetMonthly, withdrawYears, withdrawRate, accumYears, accumRate, holdYears, inflationRate){
@@ -427,6 +460,7 @@ function render(){
   const wr=val('sl-withdrawRate');
   const tm=val('sl-targetMonthly')*10000;
   const inf=val('sl-inflation');
+  const cb=val('sl-currentBalance')*10000; // 현재 은퇴 준비 계좌 평가액 (원)
 
   const area=document.getElementById('result-area');
 
@@ -438,13 +472,32 @@ function render(){
   const holdYears=Math.max(0,sa-(ca+ay));
   const{monthlyPMT,neededPV,withdrawPV,inflatedTarget}=calcMonthlyPMT(tm,wy,wr,ay,ar,holdYears,inf);
 
+  // 현재 평가액의 적립 완료 시점 기여액 (적립기간 + 예치기간 동안 복리)
+  const cbFV = cb > 0 ? cb * Math.pow(1 + ar/100, ay + holdYears) : 0;
+
+  // 부족분 = 필요 원금 - 기여액 (음수면 이미 충분)
+  const shortfall = neededPV - cbFV;
+  const alreadySufficient = shortfall <= 0;
+
+  // 부족분 기준으로 PMT 역산 (충분하면 0)
+  const neededPVforPMT = alreadySufficient ? 0 : shortfall;
+
+  // shortfall 기준 월납 PMT 재계산
+  let adjustedMonthlyPMT;
+  if(alreadySufficient){
+    adjustedMonthlyPMT = 0;
+  } else {
+    const rA = ar/100/12, nA = ay*12;
+    if(Math.abs(rA)<1e-9){ adjustedMonthlyPMT = neededPVforPMT / nA; }
+    else { adjustedMonthlyPMT = neededPVforPMT * rA / (Math.pow(1+rA, nA) - 1); }
+  }
+
   if(monthlyPMT==null||!isFinite(monthlyPMT)||monthlyPMT<0){
     area.innerHTML=`<div class="result-empty"><div style="font-size:40px;opacity:.25">△</div><p>계산할 수 없는 조합입니다</p></div>`;
     return;
   }
 
-  const pmtMan=Math.round(monthlyPMT/10000);
-
+  const pmtMan = Math.round(adjustedMonthlyPMT/10000);
   const subLine=`${ay}년간 납입${holdYears>0?` → ${holdYears}년 예치`:''} → ${sa}세부터 ${wy}년 수령`;
   const neededSub=holdYears>0?`예치 ${holdYears}년 후 → ${fmtWon(withdrawPV)}`:'수령 시작 시점';
 
@@ -461,17 +514,21 @@ function render(){
 
   // ── 명목 총납입액 합산
   let nominalTotalPaid;
-  if(escalationOn && esc > 0){
-    // 증액: 연도별 납입 합산 (월납 기준 — 첫 해 월 납입 × 12 × 증액 복리)
-    const firstMonthlyForPaid = calcEscalatedFirstPMT(neededPV, ay, ar, esc, 'monthly');
+  if(alreadySufficient){
+    nominalTotalPaid = 0;
+  } else if(escalationOn && esc > 0){
+    const firstMonthlyForPaid = calcEscalatedFirstPMT(neededPVforPMT, ay, ar, esc, 'monthly');
     nominalTotalPaid = 0;
     for(let yr = 0; yr < ay; yr++){
       nominalTotalPaid += (firstMonthlyForPaid * 12) * Math.pow(1 + esc/100, yr);
     }
   } else {
-    // 정액
-    nominalTotalPaid = monthlyPMT * ay * 12;
+    nominalTotalPaid = adjustedMonthlyPMT * ay * 12;
   }
+
+  // 초과 여부 (기여분이 목표 원금의 110% 초과 시 경고)
+  const surplusRatio = cbFV > 0 && neededPV > 0 ? ((cbFV / neededPV - 1) * 100).toFixed(1) : null;
+  const isOverfunded = alreadySufficient && cbFV > neededPV * 1.1;
 
   const ratio = nominalTotalPaid > 0 ? (nominalTotalReceived / nominalTotalPaid) : 0;
   const ratioColor = ratio > 1 ? 'var(--green)' : 'var(--red)';
@@ -482,11 +539,16 @@ function render(){
   let card1Label, card2Label, card3Label;
   let card1Sub, card2Sub, card3Sub;
 
-  if(escalationOn){
-    // 증액: 첫 해 납입액 역산
-    const firstMonthly   = calcEscalatedFirstPMT(neededPV, ay, ar, esc, 'monthly');
-    const firstAnnualEnd = calcEscalatedFirstPMT(neededPV, ay, ar, esc, 'annual-end');
-    const firstAnnualBeg = calcEscalatedFirstPMT(neededPV, ay, ar, esc, 'annual-begin');
+  if(alreadySufficient){
+    card1Label = card2Label = card3Label = '추가 납입 불필요';
+    card1Val   = card2Val   = card3Val   = 0;
+    card1Sub   = `현재 평가액만으로 목표 달성 가능`;
+    card2Sub   = `연말 납입 불필요`;
+    card3Sub   = `연초 납입 불필요`;
+  } else if(escalationOn){
+    const firstMonthly   = calcEscalatedFirstPMT(neededPVforPMT, ay, ar, esc, 'monthly');
+    const firstAnnualEnd = calcEscalatedFirstPMT(neededPVforPMT, ay, ar, esc, 'annual-end');
+    const firstAnnualBeg = calcEscalatedFirstPMT(neededPVforPMT, ay, ar, esc, 'annual-begin');
     const escStr = `매년 ${esc}% 증액`;
 
     card1Label = '첫 해 월 납입';
@@ -501,14 +563,13 @@ function render(){
     card3Val   = firstAnnualBeg!=null&&isFinite(firstAnnualBeg) ? Math.round(firstAnnualBeg/10000) : null;
     card3Sub   = `${escStr}<br>연 1회 · 연초 일시납`;
   } else {
-    // 정액: 기존 로직
-    const annualEndPMT   = calcAnnualPMT(neededPV, ay, ar, 'end');
-    const annualBeginPMT = calcAnnualPMT(neededPV, ay, ar, 'begin');
+    const annualEndPMT   = calcAnnualPMT(neededPVforPMT, ay, ar, 'end');
+    const annualBeginPMT = calcAnnualPMT(neededPVforPMT, ay, ar, 'begin');
     const annualEndMan   = annualEndPMT!=null&&isFinite(annualEndPMT)   ? Math.round(annualEndPMT/10000)   : null;
     const annualBeginMan = annualBeginPMT!=null&&isFinite(annualBeginPMT) ? Math.round(annualBeginPMT/10000) : null;
     const monthlyAnnual  = pmtMan * 12;
-    const endDiff   = annualEndMan!=null   ? ((annualEndMan/monthlyAnnual-1)*100).toFixed(1) : null;
-    const beginDiff = annualBeginMan!=null ? ((annualBeginMan/monthlyAnnual-1)*100).toFixed(1) : null;
+    const endDiff   = annualEndMan!=null&&monthlyAnnual>0 ? ((annualEndMan/monthlyAnnual-1)*100).toFixed(1) : null;
+    const beginDiff = annualBeginMan!=null&&monthlyAnnual>0 ? ((annualBeginMan/monthlyAnnual-1)*100).toFixed(1) : null;
 
     card1Label = '매월 납입';
     card1Val   = pmtMan;
@@ -579,18 +640,35 @@ function render(){
 
     <div class="inflation-banner">${infNote}</div>
 
+    ${cb>0?`<div class="inflation-banner" style="border-left-color:${isOverfunded?'var(--red)':'var(--green)'};margin-bottom:12px">
+      현재 은퇴 준비 계좌 평가액 <strong>${fmtBalanceDisplay(cb/10000)}</strong> →
+      적립 완료 시 <strong style="color:${isOverfunded?'var(--red)':'var(--green)'}">${fmtWon(cbFV)}</strong> 기여
+      ${isOverfunded
+        ? `<br><strong style="color:var(--red)">⚠ 목표 원금 대비 ${surplusRatio}% 초과 — 납입 중단을 고려할 수 있습니다.</strong>
+           <br><span style="font-size:11px;color:var(--text2)">과잉 적립은 다른 자산 배분 계획과의 균형을 해칠 수 있습니다. IdentiFi CFP와 포트폴리오 재조정을 상담하세요.</span>`
+        : alreadySufficient
+          ? `<br><strong style="color:var(--green)">✓ 추가 납입 없이 목표 달성 가능합니다</strong>`
+          : ''
+      }
+    </div>`:''}
+
     <div style="font-size:11px;color:var(--text3);margin-bottom:12px;padding:0 2px">${subLine}</div>
 
     <div class="stats">
       <div class="met">
-        <div class="ml">적립 완료 시 원금</div>
+        <div class="ml">목표 적립 원금</div>
         <div class="mv">${fmtWon(neededPV)}</div>
         <div class="ms">${neededSub}</div>
       </div>
+      ${cb>0?`<div class="met">
+        <div class="ml">평가액 기여분</div>
+        <div class="mv" style="color:${isOverfunded?'var(--red)':'var(--green)'}">${fmtWon(cbFV)}</div>
+        <div class="ms">적립 완료 시점 환산${isOverfunded?` · +${surplusRatio}% 초과`:''}</div>
+      </div>`:''}
       <div class="met">
         <div class="ml">총 납입액 (명목)</div>
-        <div class="mv">${fmtWon(nominalTotalPaid)}</div>
-        <div class="ms">${ay}년 합산${escalationOn&&esc>0?' · 증액 반영':''}</div>
+        <div class="mv">${alreadySufficient?'0원':fmtWon(nominalTotalPaid)}</div>
+        <div class="ms">${alreadySufficient?'추가 납입 불필요':`${ay}년 합산${escalationOn&&esc>0?' · 증액 반영':''}`}</div>
       </div>
       <div class="met">
         <div class="ml">총 수령 예상액 (명목)</div>
@@ -599,7 +677,7 @@ function render(){
       </div>
       <div class="met">
         <div class="ml">수익 배율</div>
-        <div class="mv" style="color:${ratioColor}">${ratio.toFixed(2)}배</div>
+        <div class="mv" style="color:${ratioColor}">${nominalTotalPaid>0?ratio.toFixed(2)+'배':'—'}</div>
         <div class="ms">명목 총수령 / 총납입</div>
       </div>
     </div>
@@ -655,6 +733,7 @@ function update(){
 }
 
 // ── 이벤트 바인딩
+bindPair('sl-currentBalance','num-currentBalance', ()=>{ updateBalanceDisplay(); update(); });
 bindPair('sl-currentAge',   'num-currentAge',   update);
 bindPair('sl-startAge',     'num-startAge',     update);
 bindPair('sl-accumYears',   'num-accumYears',   update);
@@ -684,6 +763,7 @@ document.getElementById('escalation-toggle-row').addEventListener('click', ()=>{
 });
 
 // ── 초기 렌더
+updateBalanceDisplay();
 update();
 </script>
 </body>
