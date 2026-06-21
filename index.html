@@ -187,12 +187,12 @@ input[type=range]{accent-color:var(--blue);width:100%;display:block;margin:6px 0
           <div class="ic-row">
             <span class="ic-label">적립 기간</span>
             <div class="ic-right">
-              <input class="num-input" id="num-accumYears" type="number" min="1" max="60" step="1" value="25">
+              <input class="num-input" id="num-accumYears" type="number" min="0" max="60" step="1" value="25">
               <span class="num-unit">년</span>
             </div>
           </div>
           <div class="ic-note" id="note-accumYears">수령 시작 나이까지 최대 25년</div>
-          <input type="range" id="sl-accumYears" min="1" max="25" step="1" value="25">
+          <input type="range" id="sl-accumYears" min="0" max="25" step="1" value="25">
         </div>
 
         <div class="ic" id="ic-escalation">
@@ -464,8 +464,8 @@ function render(){
 
   const area=document.getElementById('result-area');
 
-  if(sa<40||sa>100||ca<0||ca>=sa||ay<1||ay>sa-ca||wy<1||tm<=0){
-    area.innerHTML=`<div class="result-empty"><div style="font-size:40px;opacity:.25">△</div><p style="font-size:13px;line-height:1.8">입력값을 확인해주세요<br><span style="font-size:11px">수령 시작 나이는 현재 나이보다 커야 합니다</span></p></div>`;
+  if(sa<40||sa>100||ca<0||ca>sa||ay<0||ay>sa-ca||wy<1||tm<=0){
+    area.innerHTML=`<div class="result-empty"><div style="font-size:40px;opacity:.25">△</div><p style="font-size:13px;line-height:1.8">입력값을 확인해주세요<br><span style="font-size:11px">수령 시작 나이는 현재 나이 이상이어야 합니다</span></p></div>`;
     return;
   }
 
@@ -493,6 +493,60 @@ function render(){
   }
 
   if(monthlyPMT==null||!isFinite(monthlyPMT)||monthlyPMT<0){
+    if(ay===0){
+      const g0=inf/100/12;
+      let nr0=0;
+      for(let i=0;i<wy*12;i++) nr0+=inflatedTarget*Math.pow(1+g0,i);
+      const infNote0=inf>0
+        ?`물가상승률 ${inf}% 반영 · 수령 시작 시 <strong>${fmtWon(inflatedTarget)}/월</strong> → 매년 ${inf}% 증가`
+        :`물가상승률 0% · 수령액 고정`;
+      const surp0=cbFV-neededPV;
+      area.innerHTML=`
+        <div class="main-card">
+          <div class="main-card-glow"></div>
+          <div class="main-label">적립기간 0년 · 지금 바로 수령 시작</div>
+          <div class="main-value" style="font-size:24px;color:${alreadySufficient?'#4ade80':'#f87171'}">${alreadySufficient?'목표 달성 가능':fmtWon(shortfall)+' 부족'}</div>
+          <div class="main-sub">${sa}세부터 ${wy}년 수령 · 목표 적립 원금 ${fmtWon(neededPV)}</div>
+        </div>
+        <div class="inflation-banner">${infNote0}</div>
+        <div class="inflation-banner" style="border-left-color:${alreadySufficient?'var(--green)':'var(--red)'}">
+          ${cb>0?`현재 잔액 <strong>${fmtBalanceDisplay(cb/10000)}</strong> — `:'잔액 없음 — '}
+          ${alreadySufficient
+            ?`<strong style="color:var(--green)">✓ 목표 달성 가능${surp0>0?` · ${fmtWon(surp0)} 여유`:''}</strong>`
+            :`<strong style="color:var(--red)">${fmtWon(shortfall)} 부족</strong>`}
+        </div>
+        <div class="stats">
+          <div class="met">
+            <div class="ml">목표 적립 원금</div>
+            <div class="mv">${fmtWon(neededPV)}</div>
+            <div class="ms">수령 시작 시점 기준</div>
+          </div>
+          ${cb>0?`<div class="met">
+            <div class="ml">현재 잔액</div>
+            <div class="mv" style="color:${alreadySufficient?'var(--green)':'var(--text)'}">${fmtWon(cbFV)}</div>
+            <div class="ms">적립기간 없음</div>
+          </div>`:''}
+          <div class="met">
+            <div class="ml">${alreadySufficient?'여유 금액':'부족 금액'}</div>
+            <div class="mv" style="color:${alreadySufficient?'var(--green)':'var(--red)'}">${alreadySufficient?fmtWon(surp0):fmtWon(shortfall)}</div>
+            <div class="ms">${alreadySufficient?'목표 초과분':'추가 필요 금액'}</div>
+          </div>
+          <div class="met">
+            <div class="ml">총 수령 예상액 (명목)</div>
+            <div class="mv">${fmtWon(nr0)}</div>
+            <div class="ms">${wy}년 합산 · 물가 반영</div>
+          </div>
+        </div>
+        <div class="disclaimer">
+          <div class="disclaimer-title">⚠ 주의사항</div>
+          <ul>
+            <li><strong>세금 · 건보료 · 수수료 미반영</strong></li>
+            <li>물가상승률은 <strong>인출기 전 구간</strong>에 반영됩니다.</li>
+            <li>정밀한 분석은 <strong>IdentiFi CFP</strong>와 상담하세요.</li>
+          </ul>
+        </div>`;
+      return;
+    }
     area.innerHTML=`<div class="result-empty"><div style="font-size:40px;opacity:.25">△</div><p>계산할 수 없는 조합입니다</p></div>`;
     return;
   }
@@ -705,12 +759,12 @@ function render(){
 function syncAccumMax(){
   const ca=val('sl-currentAge');
   const sa=val('sl-startAge');
-  const newMax=sa>ca?sa-ca:1;
+  const newMax=Math.max(0,sa-ca);
   const slAY=document.getElementById('sl-accumYears');
   const nmAY=document.getElementById('num-accumYears');
   slAY.max=newMax;
   nmAY.max=newMax;
-  document.getElementById('note-accumYears').textContent=`수령 시작 나이까지 최대 ${newMax}년`;
+  document.getElementById('note-accumYears').textContent=`수령 시작 나이까지 최대 ${newMax}년${newMax===0?' (0년 = 지금 바로 수령 시작)':''}`;
   // 초과할 때만 클램프
   if(parseFloat(slAY.value)>newMax){ slAY.value=newMax; nmAY.value=newMax; }
 }
