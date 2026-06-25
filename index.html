@@ -28,7 +28,9 @@ html,body{
 input[type=number]::-webkit-outer-spin-button,
 input[type=number]::-webkit-inner-spin-button{-webkit-appearance:none}
 input[type=number]{-moz-appearance:textfield}
-input[type=range]{accent-color:var(--gold);width:100%;display:block;margin:6px 0 2px;cursor:pointer}
+input[type=range]{height:4px;-webkit-appearance:none;appearance:none;background:linear-gradient(to right,var(--gold) 0%,var(--gold) var(--pct,0%),var(--bg3) var(--pct,0%));border-radius:4px;padding:0;border:none;cursor:pointer;width:100%;display:block;margin:6px 0 2px}
+input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;background:var(--gold);border:2px solid var(--bg);box-shadow:0 0 0 2px rgba(196,147,63,.3)}
+input[type=range]::-moz-range-thumb{width:14px;height:14px;border:none;border-radius:50%;background:var(--gold);border:2px solid var(--bg);box-shadow:0 0 0 2px rgba(196,147,63,.3)}
 
 .wrap{display:flex;flex-direction:column;min-height:100vh}
 
@@ -817,6 +819,7 @@ document.getElementById('escalation-toggle-row').addEventListener('click', ()=>{
 // ── 초기 렌더
 updateBalanceDisplay();
 update();
+(function(){function _rp(e){var v=parseFloat(e.value),mn=parseFloat(e.min)||0,mx=parseFloat(e.max)||100;if(mx!==mn)e.style.setProperty('--pct',((v-mn)/(mx-mn)*100).toFixed(1)+'%');}document.querySelectorAll('input[type=range]').forEach(_rp);document.addEventListener('input',function(e){if(e.target.type==='range')_rp(e.target);});})();
 </script>
 </body>
 </html>
